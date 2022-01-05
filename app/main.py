@@ -1,19 +1,23 @@
-from typing import Optional
-from fastapi import FastAPI, Response, status, HTTPException
+from fastapi import FastAPI, Response, status, HTTPException, Depends
 from pydantic import BaseModel
-from random import randrange
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+from . import models
+from .database import engine, get_db
+from sqlalchemy.orm import Session
 
-models.Base.Metadata.create_all(bind=engine)
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
 
 class Post(BaseModel):
     title: str
     content: str
     published: bool = True
+
 
 while True:
     try:
@@ -29,6 +33,11 @@ while True:
 @app.get("/")
 def root():
     return {"message": "Hello world"}
+
+
+@app.get("/sql")
+def test_posts(db: Session = Depends(get_db)):
+    return {"status": "Success"}
 
 
 # Get all posts
