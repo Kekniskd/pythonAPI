@@ -1,22 +1,18 @@
 from fastapi import FastAPI, Response, status, HTTPException, Depends
-from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
-from . import models
+from . import models, schemas
 from .database import engine, get_db
 from sqlalchemy.orm import Session
+from typing import List
+from passlib.context import CryptContext
 
 
+pwd_contect = CryptContext(schemes=["bcrypt"], deprecated="auto")
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
-
-class Post(BaseModel):
-    title: str
-    content: str
-    published: bool = True
 
 
 while True:
@@ -35,55 +31,62 @@ def root():
     return {"message": "Hello world"}
 
 
-@app.get("/sql")
-def test_posts(db: Session = Depends(get_db)):
-    return {"status": "Success"}
-
-
 # Get all posts
-@app.get("/posts")
-def get_post():
-    cursor.execute("""SELECT * FROM posts """)
-    posts = cursor.fetchall()
-    return {"data": posts}
+@app.get("/posts", response_model=List[schemas.Post])
+def get_post(db: Session = Depends(get_db)):
+    posts = db.query(models.Post).all()
+    return posts
 
 
 # Create new post
-@app.post("/posts", status_code=status.HTTP_201_CREATED)
-def create_post(post: Post):
-    cursor.execute("""INSERT INTO posts (title, content, published) VALUES(%s, %s, %s) RETURNING *""",(post.title, post.content, post.published))
-    newPost = cursor.fetchone()
-    conn.commit()
-    return {"data": newPost}
+@app.post("/posts", status_code=status.HTTP_201_CREATED, response_model=schemas.Post)
+def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
+    newPost = models.Post(**post.dict())
+    db.add(newPost)
+    db.commit()
+    db.refresh(newPost)
+    return newPost
 
 
 # Get post by ID
-@app.get("/posts/{id}")
-def get_post(id: int):
-    cursor.execute("""SELECT * FROM posts WHERE id = %s """, (str(id),))
-    post = cursor.fetchone()
+@app.get("/posts/{id}", response_model=schemas.Post)
+def get_post(id: int, db: Session = Depends(get_db)):
+    post = db.query(models.Post).filter(models.Post.id == id).first()
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} not found")
-    return {"post_detail": post}
+    return post
 
 
 # Delete post
 @app.delete("/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_post(id: int):
-    cursor.execute("""DELETE FROM posts WHERE id=%s RETURNING *""", (str(id),))
-    deletedPost = cursor.fetchone()
-    conn.commit()
-    if deletedPost == None:
+def delete_post(id: int, db: Session = Depends(get_db)):
+    post = db.query(models.Post).filter(models.Post.id == id)
+    if post.first() == None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} does not exist")
+    post.delete(synchronize_session=False)
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # Update post
-@app.put("/posts/{id}")
-def update_post(id: int, post: Post):
-    cursor.execute("""UPDATE posts SET title=%s, content=%s,published=%s WHERE id = %s RETURNING *""", (post.title, post.content, post.published, str(id)))
-    updatedPost = cursor.fetchone()
-    conn.commit()
-    if updatedPost == None:
+@app.put("/posts/{id}", response_model=schemas.Post)
+def update_post(id: int, updatedPost: schemas.PostCreate, db: Session = Depends(get_db)):
+    postQuery = db.query(models.Post).filter(models.Post.id == id)
+    post = postQuery.first()
+    if post == None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} does not exist")
-    return {"data": updatedPost}
+    postQuery.update(updatedPost.dict(), synchronize_session=False)
+    db.commit()
+    return postQuery.first()
+
+
+# Create user
+@app.post("/users", status_code=status.HTTP_201_CREATED, response_model=schemas.UserOut)
+def createUser(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    hashedPass = pwd_contect.hash(user.password)
+    user.password = hashedPass
+    newUser = models.User(**user.dict())
+    db.add(newUser)
+    db.commit()
+    db.refresh(newUser)
+    return newUser
