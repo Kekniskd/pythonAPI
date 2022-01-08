@@ -4,11 +4,14 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/users",
+    tags=['Users']
+)
 
 
 # Create user
-@router.post("/users", status_code=status.HTTP_201_CREATED, response_model=schemas.UserOut)
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=schemas.UserOut)
 def createUser(user: schemas.UserCreate, db: Session = Depends(get_db)):
     hashedPass = utils.hash(user.password)
     user.password = hashedPass
@@ -19,8 +22,8 @@ def createUser(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return newUser
 
 
-# Get user by id
-@router.get("/users/{id}", response_model=schemas.UserOut)
+# Get user by ID
+@router.get("/{id}", response_model=schemas.UserOut)
 def get_user(id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.id == id).first()
 
