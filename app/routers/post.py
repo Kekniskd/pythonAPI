@@ -3,6 +3,7 @@ from starlette.status import HTTP_403_FORBIDDEN
 from .. import models, schemas, oauth2
 from ..database import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 
 
@@ -13,11 +14,12 @@ router = APIRouter(
 
 
 # Get all posts
-@router.get("/", response_model=List[schemas.Post])
+@router.get("/", response_model=List[schemas.PostOut])
+# @router.get("/")
 def get_post(db: Session = Depends(get_db), limit: int=10, skip: int=0, search: Optional[str]=""):
-    print(search)
-    posts = db.query(models.Post).filter(models.Post.title.contains(search)).limit(limit).offset(skip).all()
-    return posts
+    results = db.query(models.Post, func.count(models.Vote.post_id).label("votes")).join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True).group_by(models.Post.id).filter(models.Post.title.contains(search)).limit(limit).offset(skip).all()
+    # Query (SELECT posts.id AS posts_id, posts.title AS posts_title, posts.content AS posts_content, posts.published AS posts_published, posts.created_at AS posts_created_at, posts.user_id AS posts_user_id, count(votes.post_id) AS votesFROM posts LEFT OUTER JOIN votes ON votes.post_id = posts.id GROUP BY posts.id)
+    return results
 
 
 # Create new post
@@ -31,9 +33,10 @@ def create_post(post: schemas.PostCreate, db: Session = Depends(get_db), current
 
 
 # Get post by ID
-@router.get("/{id}", response_model=schemas.Post)
+@router.get("/{id}", response_model=schemas.PostOut)
 def get_post(id: int, db: Session = Depends(get_db)):
-    post = db.query(models.Post).filter(models.Post.id == id).first()
+    # post = db.query(models.Post).filter(models.Post.id == id).first()
+    post = db.query(models.Post, func.count(models.Vote.post_id).label("votes")).join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True).group_by(models.Post.id).filter(models.Post.id == id).first()
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} not found")
     return post
